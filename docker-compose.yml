@@ -1,0 +1,20 @@
+services:
+  db:
+    image: mysql:8.0.36
+    container_name: Lab05_database
+    # 强制不自动启动。只有当你手动执行命令时才会拉起，关机重启后它绝对不会后台偷偷启动吃内存
+    restart: "no" 
+    environment:
+      MYSQL_ROOT_PASSWORD: root_pass
+      MYSQL_DATABASE: lab_DB
+      # 以下两行就是用来剥夺 root 权限的：自动创建一个只对 lab_DB 有权限的普通用户
+      MYSQL_USER: lab_user
+      MYSQL_PASSWORD: lab_password
+    ports:
+      - "3306:3306"
+    volumes:
+      # 放弃物理路径，改用 Docker 托管卷。这是保证环境纯净和初始化脚本正常运行的前提
+      - lab05_mysql_data:/var/lib/mysql
+
+volumes:
+  lab05_mysql_data:
