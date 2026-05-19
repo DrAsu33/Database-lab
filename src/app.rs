@@ -1,7 +1,7 @@
-use std::net::Shutdown;
-
 use sqlx::mysql::{MySqlPoolOptions, MySqlPool};
 use tokio::io::{self, AsyncBufReadExt};
+
+use crate::auth;
 
 // FSM to record the state
 enum AppState {
@@ -89,7 +89,7 @@ impl App {
                     return AppFlow::Continue;
                 }
                 "3" => {
-                    println!("Quitted successfully! ...");
+                    println!("Quitting...");
                     return AppFlow::Shutdown;
                 }
                 _ => {
@@ -148,8 +148,23 @@ impl App {
                     // trim() returns a &str and should be converted manually
                     let password = input.trim();
 
-                    self.login_with_data(account, password).await;
+                    // Login with the data input
+                    let result = auth::login_with_data(&self.pool, account, password).await;
+                    match result {
+                        Ok(true) => {
+                            println!("Login successed. Welcome, User {}.", account);
+                            // After logged in successfully, the state machine shall advance.
+                            self.state = AppState::LoggedIn(account);
+                        }
+                        Ok(false) => {
+                            println!("Login failed: Invalid account or password.");
+                        }
+                        Err(e) => {
+                            println!("Database error during login: {:?}", e);
+                        }
+                    }
                     break;
+
                 }
 
                 "2" => {
@@ -193,7 +208,8 @@ impl App {
                         return;
                     }
 
-                    match self.register_with_password(&self.pool, input.trim()).await {
+                    let result = auth::register_with_password(&self.pool, input.trim()).await;
+                    match result {
                         Ok(assigned_id) => {
                             println!("Registration success! Your assigned id is {}", assigned_id);
                             return;
@@ -226,7 +242,6 @@ impl App {
             match self.state {
                 AppState::NotLoggedIn => {
                     if self.handle_not_logged_in().await == AppFlow::Shutdown {
-                        println!("successfully quitted!");
                         return;
                     }
                 }
