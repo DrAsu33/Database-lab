@@ -8,3 +8,4 @@ tokio = { version = "1", features = ["full"] }
 # 仅启用对 mysql、运行时 (tokio) 和宏的支持
 sqlx = { version = "0.7", features = ["mysql", "runtime-tokio-native-tls", "macros", "chrono"] }
 dotenvy = "0.15"
+thiserror = "1.0"

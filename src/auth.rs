@@ -1,16 +1,8 @@
-use std::result;
-
 use sqlx::mysql::MySqlPool;
-
-
-// 严谨的业务错误枚举
-#[derive(Debug)]
-pub enum RegistrationError {
-    DatabaseError(sqlx::Error),
-}
+use crate::errors::RegistrationError;
 
 // Following func is supposed to interact with the database, not the user.
-pub async fn login_with_data(sql_pool: &MySqlPool, account: i32, password: &str) -> Result<bool, sqlx::Error> {
+pub async fn login_with_data(sql_pool: &MySqlPool, account: u64, password: &str) -> Result<bool, sqlx::Error> {
     let result = sqlx::query_scalar!(r#"SELECT 1 FROM Users u WHERE id = (?) AND password = (?)"#, account, password)
     .fetch_optional(sql_pool)
     .await?;
