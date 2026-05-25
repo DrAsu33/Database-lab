@@ -38,4 +38,13 @@ pub enum DomainError {
 
     #[error("The group does not exist")]
     GroupNotFound,
+
+    #[error("The content mustn't be empty")]
+    EmptyContent,
+
+    #[error("The 150 alphabets limit was reached")]
+    CharacterLimitExceeded,
+
+    #[error("The moment or comment does not exist or you're unauthorized")]
+    MomentOrCommentNotFoundOrUnauthorized
 }

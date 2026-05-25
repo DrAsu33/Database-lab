@@ -1,7 +1,8 @@
 use tokio::io::{self, AsyncBufReadExt, BufReader, Stdin};
-use crate::service::service::RelationService;
+use crate::service::service::{MomentService, RelationService};
 use crate::service::{UserService};
 use crate::domain::DomainError;
+use chrono::Local;
 
 // The FSM for the client
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,16 +17,18 @@ pub struct CliApplication {
     reader: BufReader<Stdin>,
     user_service: UserService,
     relation_service: RelationService,
+    moment_service: MomentService,
     state: CliState,
     input_buffer: String,
 }
 
 impl CliApplication {
-    pub fn new(user_service: UserService, relation_service: RelationService) -> Self {
+    pub fn new(user_service: UserService, relation_service: RelationService, moment_service: MomentService) -> Self {
         Self {
             reader: BufReader::new(io::stdin()),
             user_service,
             relation_service,
+            moment_service,
             state: CliState::Guest,
             input_buffer: String::with_capacity(128),
         }
@@ -266,6 +269,123 @@ impl CliApplication {
         Ok(())
     }
 
+    async fn moments_loop(&mut self, uid: u64) -> Result<(), io::Error> {
+        loop {
+            println!("\n=== Moments & Comments ===");
+            println!("1. View Moments");
+            println!("2. Create New Moment");
+            println!("3. Edit Moment");
+            println!("4. Delete Moment");
+            println!("5. Add Comment");
+            println!("6. Delete Comment");
+            println!("7. Return to Main Menu");
+
+            let choice = self.read_next_line().await?;
+
+            match choice.as_str() {
+                "1" => {
+                    match self.moment_service.get_friends_moments(uid).await {
+                        Ok(moments) => {
+                            if moments.is_empty() {
+                                println!("There are no moments now visible.");
+                            } else {
+                                println!("\n================ Moments ================");
+                                for m in moments {
+                                    let edited_tag = m.is_edited();
+                                    let time_str = if edited_tag {m.last_modified_time.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string()}
+                                    else {m.created_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string()};
+                                    if m.is_edited() {
+                                        println!("\n[ID: {}] By {} Last edited at: {}", m.moment_id, m.author_name.unwrap_or_default(), time_str);
+                                    }
+                                    else {
+                                        println!("\n[ID: {}] By {} Posted at: {}", m.moment_id, m.author_name.unwrap_or_default(), time_str);
+                                    }
+                                    println!("  {}", m.content);
+                                    
+                                    // 解包 sqlx::types::Json
+                                    let comments = &m.comments.0; 
+                                    if !comments.is_empty() {
+                                        println!("  --- Comments ---");
+                                        for c in comments {
+                                            let c_time = c.created_at.with_timezone(&Local).format("%m-%d %H:%M").to_string();
+                                            println!("    -> [comment ID: {}] {}: {} (commented at: {})", 
+                                                c.comment_id, c.commenter_name, c.comment, c_time);
+                                        }
+                                    }
+                                    println!("----------------------------------------");
+                                }
+                            }
+                        }
+                        Err(e) => println!("Failed to fetch moments: {}", e),
+                    }
+                }
+                "2" => {
+                    println!("Enter moment content (max 150 characters):");
+                    let content = self.read_next_line().await?; 
+                    match self.moment_service.post_moment(uid, &content).await {
+                        Ok(id) => println!("Posted successfully! Moment ID: {}", id),
+                        Err(e) => println!("Failed to post: {}", e),
+                    }
+                }
+                "3" => {
+                    println!("Enter the ID of the moment to edit:");
+                    let id_str = self.read_next_line().await?;
+                    if let Ok(moment_id) = id_str.parse::<u64>() {
+                        println!("Enter the new content:");
+                        let new_content = self.read_next_line().await?;
+                        match self.moment_service.update_moment(uid, moment_id, &new_content).await {
+                            Ok(_) => println!("Updated successfully!"),
+                            Err(e) => println!("Update failed: {}", e),
+                        }
+                    }
+                    else {
+                        println!("Invalid input. Please try again.");
+                    }
+                }
+                "4" => {
+                    println!("Enter the moment ID to delete:");
+                    let id_str = self.read_next_line().await?;
+                    if let Ok(moment_id) = id_str.parse::<u64>() {
+                        match self.moment_service.delete_moment(uid, moment_id).await {
+                            Ok(_) => println!("Deleted successfully! Related comments have been cleared via database cascade."),
+                            Err(e) => println!("Delete failed: {}", e),
+                        }
+                    }
+                    else {
+                        println!("Invalid input. Please try again.");
+                    }
+                }
+                "5" => {
+                    println!("Enter the target moment ID:");
+                    let id_str = self.read_next_line().await?;
+                    if let Ok(moment_id) = id_str.parse::<u64>() {
+                        println!("Enter comment content (max 50 characters):");
+                        let content = self.read_next_line().await?;
+                        match self.moment_service.post_comment(uid, moment_id, &content).await {
+                            Ok(id) => println!("Comment posted! Comment ID: {}", id),
+                            Err(e) => println!("Comment failed: {}", e),
+                        }
+                    }
+                    else {
+                        println!("Invalid input. Please try again.");
+                    }
+                }
+                "6" => {
+                    println!("Enter the comment ID to delete:");
+                    let id_str = self.read_next_line().await?;
+                    if let Ok(comment_id) = id_str.parse::<u64>() {
+                        match self.moment_service.delete_comment(uid, comment_id).await {
+                            Ok(_) => println!("Comment deleted."),
+                            Err(e) => println!("Delete failed: {}", e),
+                        }
+                    }
+                }
+                "7" => break,
+                _ => println!("Invalid choice."),
+            }
+        }
+        Ok(())
+    }
 }
 
 impl CliApplication {
@@ -348,7 +468,7 @@ impl CliApplication {
         println!("==========================================================");
         println!("User {}, welcome! You can try the following features.", user_id);
         println!("Press 1 for logout, 2 for quit, 3 for modifying your personal information.");
-        println!("4 for friends.");
+        println!("4 for friends, 5 for checking moments.");
         println!("Other functions are under development.");
 
         let choice = self.read_next_line().await?;
@@ -357,18 +477,18 @@ impl CliApplication {
                 println!("Logging out...");
                 self.state = CliState::Guest;
             }
-
             "2" => {
                 println!("Trying to quit...");
                 self.state = CliState::Quit;
             }
-
             "3" => {
                 self.profile_edit_loop(user_id).await?;
             }
-
             "4" => {
                 self.friends_loop(user_id).await?;
+            }
+            "5" => {
+                self.moments_loop(user_id).await?;
             }
             _ => {
                 println!("Your input is invalid, Please try again.");

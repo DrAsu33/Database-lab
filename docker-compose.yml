@@ -10,6 +10,7 @@ services:
       # 以下两行就是用来剥夺 root 权限的：自动创建一个只对 lab_DB 有权限的普通用户
       MYSQL_USER: lab_user
       MYSQL_PASSWORD: lab_password
+      TZ: Asia/Shanghai # 设置容器系统时区为上海 东八区
     ports:
       - "3306:3306"
     volumes:

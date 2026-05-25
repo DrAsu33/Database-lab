@@ -5,7 +5,7 @@ mod infrastructure;
 use sqlx::mysql::{MySqlPoolOptions, MySqlPool};
 use std::sync::Arc;
 
-use crate::{infrastructure::{MySqlRelationRepository, MySqlUserRepository}};
+use crate::infrastructure::{MySqlRelationRepository, MySqlUserRepository, MySqlMomentRepository};
 
 // 在调试阶段，最大最小链接数先设置为1，之后可以对参数进行修改。
 const MAX_CONNECTION : u32 = 1;
@@ -34,11 +34,13 @@ async fn compose_cli() -> Result<cli::CliApplication, sqlx::Error> {
     let pool = get_pool().await?;
     let user_repository = MySqlUserRepository::new(pool.clone());
     let relation_repository = MySqlRelationRepository::new(pool.clone());
+    let moment_repository = MySqlMomentRepository::new(pool.clone());
 
     Ok(
         cli::CliApplication::new(
             service::UserService::new(Arc::new(user_repository)),
-            service::RelationService::new(Arc::new(relation_repository))
+            service::RelationService::new(Arc::new(relation_repository)),
+            service::MomentService::new(Arc::new(moment_repository))
         )
     )
 }

@@ -1,6 +1,7 @@
-use crate::domain::{DomainError, UserProfile, FriendItem};
-use crate::service::UserRepository;
+use crate::domain::{DomainError, FriendItem, MomentItem, UserProfile};
+use crate::service::{MomentRepository, UserRepository};
 use crate::service::RelationRepository;
+use crate::infrastructure::{MOMENT_LIMIT, COMMENT_LIMIT};
 use std::sync::Arc;
 
 // The service struct only have the underlying resources and does not have a state
@@ -18,6 +19,14 @@ pub struct UserService{
     /// trait 中的方法必须是 async + Send（配合 async_trait）
     /// Rust 会自动做 Deref coercion（Arc → &T）
     repo: Arc<dyn UserRepository + Send + Sync>
+}
+
+pub struct RelationService {
+    repo: Arc<dyn RelationRepository + Send + Sync>,
+}
+
+pub struct MomentService {
+    repo: Arc<dyn MomentRepository + Send + Sync>,
 }
 
 impl UserService {
@@ -56,10 +65,6 @@ impl UserService {
 
         Ok(())
     }
-}
-
-pub struct RelationService {
-    repo: Arc<dyn RelationRepository + Send + Sync>,
 }
 
 impl RelationService {
@@ -130,4 +135,48 @@ impl RelationService {
     }
 
 
+}
+
+impl MomentService {
+    pub fn new(repo: Arc<dyn MomentRepository>) -> Self {
+        Self { repo }
+    }
+
+    fn validate_content(raw_content: &str, limit: usize) -> Result<&str, DomainError> {
+        let clean = raw_content.trim();
+        if clean.is_empty() {
+            return Err(DomainError::EmptyContent);
+        }
+        if clean.chars().count() > limit {
+            return Err(DomainError::CharacterLimitExceeded);
+        }
+        Ok(clean)
+    }
+
+    pub async fn get_friends_moments(&self, uid: u64) -> Result<Vec<MomentItem>, DomainError> {
+        self.repo.fetch_friends_moments(uid).await
+    }
+
+    pub async fn post_moment(&self, uid: u64, raw_content: &str) -> Result<u64, DomainError> {
+        let clean_content = Self::validate_content(raw_content, MOMENT_LIMIT)?;
+        self.repo.post_moment(uid, clean_content).await
+    }
+
+    pub async fn update_moment(&self, uid: u64, moment_id: u64, raw_content: &str) -> Result<(), DomainError> {
+        let clean_content = Self::validate_content(raw_content, MOMENT_LIMIT)?;
+        self.repo.update_moment(uid, moment_id, clean_content).await
+    }
+
+    pub async fn delete_moment(&self, uid: u64, moment_id: u64) -> Result<(), DomainError> {
+        self.repo.delete_moment(uid, moment_id).await
+    }
+
+    pub async fn post_comment(&self, uid: u64, moment_id: u64, raw_content: &str) -> Result<u64, DomainError> {
+        let clean_content = Self::validate_content(raw_content, COMMENT_LIMIT)?;
+        self.repo.post_comment(uid, moment_id, clean_content).await
+    }
+
+    pub async fn delete_comment(&self, uid: u64, comment_id: u64) -> Result<(), DomainError> {
+        self.repo.delete_comment(uid, comment_id).await
+    }
 }
