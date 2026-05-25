@@ -22,4 +22,20 @@ pub enum DomainError {
     // System failure! Print the error string
     #[error("Internal system failure: {0}")]
     SystemFailure(String),
+
+    // Friends module errors
+    #[error("Target user does not exist")]
+    UserDoesNotExist,
+
+    #[error("Relation already exists or request is pending")]
+    RelationAlreadyExists,
+
+    #[error("Invalid relation state or request not found")]
+    InvalidRelationState,
+
+    #[error("The name of group already exists")]
+    GroupNameAlreadyExists,
+
+    #[error("The group does not exist")]
+    GroupNotFound,
 }

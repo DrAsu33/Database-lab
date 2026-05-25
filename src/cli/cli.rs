@@ -1,4 +1,5 @@
 use tokio::io::{self, AsyncBufReadExt, BufReader, Stdin};
+use crate::service::service::RelationService;
 use crate::service::{UserService};
 use crate::domain::DomainError;
 
@@ -13,16 +14,18 @@ enum CliState {
 // The memory allocated here is always reused.
 pub struct CliApplication {
     reader: BufReader<Stdin>,
-    service: UserService,
+    user_service: UserService,
+    relation_service: RelationService,
     state: CliState,
     input_buffer: String,
 }
 
 impl CliApplication {
-    pub fn new(service: UserService) -> Self {
+    pub fn new(user_service: UserService, relation_service: RelationService) -> Self {
         Self {
             reader: BufReader::new(io::stdin()),
-            service,
+            user_service,
+            relation_service,
             state: CliState::Guest,
             input_buffer: String::with_capacity(128),
         }
@@ -42,7 +45,7 @@ impl CliApplication {
     // After the user choosed to edit his profile, the fn is called in the auth_loop
     async fn profile_edit_loop(&mut self, uid: u64) -> Result<(), io::Error> {
         loop {
-            let mut profile = match self.service.get_profile(uid).await {
+            let mut profile = match self.user_service.get_profile(uid).await {
                 Ok(p) => p,
                 Err(e) => {
                     eprintln!("Failed to fetch profile: {}", e);
@@ -94,7 +97,7 @@ impl CliApplication {
                 }
             }
 
-            match self.service.modify_profile(&profile).await {
+            match self.user_service.modify_profile(&profile).await {
                 Ok(_) => {
                     println!("Modification success!");
                 },
@@ -107,6 +110,162 @@ impl CliApplication {
 
     Ok(())
     }
+
+    async fn friends_loop(&mut self, uid: u64) -> Result<(), io::Error> {
+        loop {
+            println!("\n=== Friend Management ===");
+            println!("Note: One friend can have at most 1 group and groups' name should be different.");
+            println!("0. Back to Main Menu");
+            println!("1. View My Friends");
+            println!("2. Search Users");
+            println!("3. Send Friend Request");
+            println!("4. Manage Friend Requests (Pending)");
+            println!("5. Remove Friend");
+            println!("6. Create Group");
+            println!("7. Delete Group");
+            println!("8. Move Friend");
+            
+            let choice = self.read_next_line().await?;
+
+            match choice.as_str() {
+                "0" => break, // 0. Back to Main Menu
+                "1" => {
+                    // 1. View My Friends
+                    match self.relation_service.list_friends(uid).await {
+                        Ok(friends) => {
+                            if friends.is_empty() {
+                                println!("You do not have any friends now.");
+                            } else {
+                                println!("\n--- Your friends list ---");
+                                for f in friends {
+                                    let group_display = f.group_name.as_deref().unwrap_or("默认分组");
+                                    println!("ID: {} | name: {} | group: [{}]", f.id, f.name, group_display);
+                                }
+                            }
+                        }
+                        Err(e) => println!("获取好友失败: {}", e),
+                    }
+                }
+                "2" => {
+                    // 2. Search Users
+                    println!("Please input the name prefix:");
+                    if let Ok(query) = self.read_next_line().await {
+                        match self.relation_service.search(uid, &query).await {
+                            Ok(users) => {
+                                if users.is_empty() {
+                                    println!("Failed to find such users.");
+                                } else {
+                                    println!("\n--- Results ---");
+                                    for u in users {
+                                        // status: 255是无关系, 0是已申请, 2是已经是好友
+                                        let relation_text = match u.status {
+                                            255 => "Stranger",
+                                            0 => "Request Sent",
+                                            2 => "Already Friends",
+                                            _ => {"Unknown Status (this is a serious database error)"},
+                                        };
+                                        println!("ID: {} | name: {} | status: {}", u.id, u.name, relation_text);
+                                    }
+                                }
+                            }
+                            Err(e) => println!("The search failed: {}", e),
+                        }
+                    }
+                }
+                "3" => {
+                    // 3. Send Friend Request
+                    println!("Enter the target user ID to add:");
+                    if let Ok(id_str) = self.read_next_line().await {
+                        if let Ok(target_id) = id_str.parse::<u64>() {
+                            match self.relation_service.add_friend(uid, target_id).await {
+                                Ok(_) => println!("Friend request sent successfully!"),
+                                Err(e) => println!("Failed to send request: {}", e), 
+                            }
+                        } else {
+                            println!("Invalid ID format.");
+                        }
+                    }
+                }
+                "4" => {
+                    // 4. Manage Friend Requests (Pending)
+                    match self.relation_service.get_pending_requests(uid).await {
+                        Ok(requests) => {
+                            if requests.is_empty() {
+                                println!("No pending friend requests.");
+                            } else {
+                                println!("\n--- Pending Requests ---");
+                                for req in requests {
+                                    println!("ID: {} | From: {}", req.id, req.name);
+                                }
+                                println!("Enter the user ID to accept (enter 0 to cancel):");
+                                if let Ok(id_str) = self.read_next_line().await {
+                                    if let Ok(applicant_id) = id_str.parse::<u64>() {
+                                        if applicant_id == 0 { continue; }
+                                        match self.relation_service.accept_request(uid, applicant_id).await {
+                                            Ok(_) => println!("Friend request accepted!"),
+                                            Err(e) => println!("Failed to process request: {}", e),
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => println!("Failed to fetch requests: {}", e),
+                    }
+                }
+                "5" => {
+                    // 5. Remove Friend
+                    println!("Enter the friend ID to remove:");
+                    if let Ok(id_str) = self.read_next_line().await {
+                        if let Ok(friend_id) = id_str.parse::<u64>() {
+                            match self.relation_service.delete_friend(uid, friend_id).await {
+                                Ok(_) => println!("Friend or request removed."),
+                                Err(e) => println!("Failed to remove: {}", e),
+                            }
+                        } else {
+                            println!("Invalid ID format.");
+                        }
+                    }
+                }
+                "6" => {
+                    println!("Enter the new group name:");
+                    if let Ok(name) = self.read_next_line().await {
+                        match self.relation_service.create_group(uid, &name).await {
+                            Ok(id) => println!("Group '{}' created successfully. Assigned ID: {}", name, id),
+                            Err(e) => println!("Failed to create group: {}", e),
+                        }
+                    }
+                }
+                "7" => {
+                    println!("Enter the group name to delete (friends in this group will be unassigned):");
+                    if let Ok(name) = self.read_next_line().await {
+                        match self.relation_service.delete_group_by_name(uid, &name).await {
+                            Ok(_) => println!("Group '{}' deleted successfully.", name),
+                            Err(e) => println!("Failed to delete group: {}", e),
+                        }
+                    }
+                }
+                "8" => {
+                    println!("Enter the friend ID to move:");
+                    if let Ok(id_str) = self.read_next_line().await {
+                        if let Ok(friend_id) = id_str.parse::<u64>() {
+                            println!("Enter the target group name (press Enter to remove from current group):");
+                            if let Ok(group_name) = self.read_next_line().await {
+                                match self.relation_service.move_friend_to_group(uid, friend_id, &group_name).await {
+                                    Ok(_) => println!("Friend group updated successfully."),
+                                    Err(e) => println!("Failed to move friend: {}", e),
+                                }
+                            }
+                        } else {
+                            println!("Invalid ID format.");
+                        }
+                    }
+                }
+                _ => println!("Invalid input please try again."),
+            }
+        }
+        Ok(())
+    }
+
 }
 
 impl CliApplication {
@@ -140,7 +299,7 @@ impl CliApplication {
 
                 println!("Please input your password.");
                 let password = self.read_next_line().await?;
-                match self.service.verify_login(account, &password).await {
+                match self.user_service.verify_login(account, &password).await {
                     Ok(_) => {
                         println!("Login successful. Welcome User {}", account);
                         self.state = CliState::Authenticated(account);
@@ -163,7 +322,7 @@ impl CliApplication {
                     return Ok(());
                 }
             
-                match self.service.create_user(&password).await {
+                match self.user_service.create_user(&password).await {
                     Ok(id) => {
                         println!("Registration succeeded! Please remember that your assigned ID is {}.", id)
                     },
@@ -188,7 +347,9 @@ impl CliApplication {
     async fn auth_loop(&mut self, user_id: u64) -> Result<(), io::Error> {
         println!("==========================================================");
         println!("User {}, welcome! You can try the following features.", user_id);
-        println!("Press 1 for logout, 2 for quit, 3 for modifying your personal information. Other functions are under development.");
+        println!("Press 1 for logout, 2 for quit, 3 for modifying your personal information.");
+        println!("4 for friends.");
+        println!("Other functions are under development.");
 
         let choice = self.read_next_line().await?;
         match choice.as_str() {
@@ -206,6 +367,9 @@ impl CliApplication {
                 self.profile_edit_loop(user_id).await?;
             }
 
+            "4" => {
+                self.friends_loop(user_id).await?;
+            }
             _ => {
                 println!("Your input is invalid, Please try again.");
             }
