@@ -1,7 +1,7 @@
 use sqlx::MySqlPool;
 use async_trait::async_trait;
 use crate::service::UserRepository;
-use crate::domain::{DomainError, UserProfile};
+use crate::domain::{DomainError, UserProfile, Role};
 
 pub struct MySqlUserRepository {
     pool: MySqlPool,
@@ -17,15 +17,18 @@ impl MySqlUserRepository {
 
 #[async_trait]
 impl UserRepository for MySqlUserRepository {
-    async fn login_with_data(&self, account: u64, password: &str) -> Result<bool, DomainError> {
-        let result = sqlx::query_scalar!(r#"SELECT 1 FROM Users u WHERE id = (?) AND password = (?)"#, account, password)
+    async fn login_with_data(&self, account: u64, password: &str) -> Result<Role, DomainError> {
+        let result = sqlx::query_scalar!(r#"SELECT role AS "role: Role" FROM Users u WHERE id = (?) AND password = (?)"#, account, password)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| {
             DomainError::SystemFailure(e.to_string())
         })?;
         
-        Ok(result.is_some())
+        match result {
+            Some(role_value) => Ok(role_value),
+            None => Err(DomainError::InvalidCredentials),
+        }
     }
 
     async fn register_with_password(&self, raw_password: &str) -> Result<u64, DomainError> {
@@ -49,7 +52,7 @@ impl UserRepository for MySqlUserRepository {
     async fn fetch_profile(&self, uid: u64) -> Result<UserProfile, DomainError> {
         let user = sqlx::query_as!(
             UserProfile,
-            r#"SELECT id, name, gender, birth_date FROM Users WHERE id = ?"#, uid
+            r#"SELECT id, name, gender, birth_date, role FROM Users WHERE id = ?"#, uid
         )
         .fetch_one(&self.pool)
         .await
@@ -86,4 +89,16 @@ impl UserRepository for MySqlUserRepository {
         Ok(())
     }
 
+    async fn force_cancel_user(&self, uid: u64) -> Result<(), DomainError> {
+        let result = sqlx::query!(r#"DELETE FROM Users WHERE id = ?"#, uid)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| DomainError::SystemFailure(e.to_string()))?;
+
+        if result.rows_affected() == 0 {
+            return Err(DomainError::UserNotFound);
+        }
+
+        Ok(())   
+    }
 }

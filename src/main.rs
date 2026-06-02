@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::infrastructure::{MySqlRelationRepository, MySqlUserRepository, MySqlMomentRepository};
 
 // 在调试阶段，最大最小链接数先设置为1，之后可以对参数进行修改。
-const MAX_CONNECTION : u32 = 1;
+const MAX_CONNECTION : u32 = 10;
 const MIN_CONNECTION : u32 = 1;
 
 // fn to get the connection pool with MySQL

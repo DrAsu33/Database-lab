@@ -1,4 +1,4 @@
-use crate::domain::{DomainError, FriendItem, MomentItem, UserProfile};
+use crate::domain::{Role, DomainError, FriendItem, MomentItem, UserProfile};
 use crate::service::{MomentRepository, UserRepository};
 use crate::service::RelationRepository;
 use crate::infrastructure::{MOMENT_LIMIT, COMMENT_LIMIT};
@@ -37,14 +37,8 @@ impl UserService {
     }
 
     // A pure verify fn Returns () if success, errors if failed
-    pub async fn verify_login(&self, account: u64, password: &str) -> Result<(), DomainError> {
-        let is_valid = self.repo.login_with_data(account, password).await?;
-            
-        if !is_valid {
-            return Err(DomainError::InvalidCredentials);
-        }
-        
-        Ok(())
+    pub async fn verify_login(&self, account: u64, password: &str) -> Result<Role, DomainError> {
+        self.repo.login_with_data(account, password).await
     }
 
     // Note: The following 2 fn can convert sqlx:Error into DomainError automatically
@@ -54,6 +48,10 @@ impl UserService {
         Ok(id)
     }
 
+    pub async fn admin_cancel_user(&self, uid: u64) -> Result<(), DomainError> {
+        self.repo.force_cancel_user(uid).await
+    }
+    
     pub async fn get_profile(&self, uid: u64) -> Result<UserProfile, DomainError> {
         let res = self.repo.fetch_profile(uid).await?;
 
@@ -153,8 +151,8 @@ impl MomentService {
         Ok(clean)
     }
 
-    pub async fn get_friends_moments(&self, uid: u64) -> Result<Vec<MomentItem>, DomainError> {
-        self.repo.fetch_friends_moments(uid).await
+    pub async fn get_friends_moments(&self, uid: u64, limit: u32, offset: u32) -> Result<Vec<MomentItem>, DomainError> {
+        self.repo.fetch_friends_moments(uid, limit, offset).await
     }
 
     pub async fn post_moment(&self, uid: u64, raw_content: &str) -> Result<u64, DomainError> {
@@ -168,7 +166,7 @@ impl MomentService {
     }
 
     pub async fn delete_moment(&self, uid: u64, moment_id: u64) -> Result<(), DomainError> {
-        self.repo.delete_moment(uid, moment_id).await
+        self.repo.delete_moment_by_author(uid, moment_id).await
     }
 
     pub async fn post_comment(&self, uid: u64, moment_id: u64, raw_content: &str) -> Result<u64, DomainError> {
@@ -179,4 +177,13 @@ impl MomentService {
     pub async fn delete_comment(&self, uid: u64, comment_id: u64) -> Result<(), DomainError> {
         self.repo.delete_comment(uid, comment_id).await
     }
+
+    pub async fn admin_delete_moment(&self, moment_id: u64) -> Result<(), DomainError> {
+        self.repo.force_delete_moment(moment_id).await
+    }
+
+    pub async fn admin_get_all_moments(&self, limit: u32, offset: u32) -> Result<Vec<MomentItem>, DomainError> {
+        self.repo.fetch_all_moments_for_admin(limit, offset).await
+    }
+
 }

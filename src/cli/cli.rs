@@ -1,14 +1,15 @@
 use tokio::io::{self, AsyncBufReadExt, BufReader, Stdin};
+use crate::infrastructure::{COMMENT_LIMIT, MOMENT_LIMIT};
 use crate::service::service::{MomentService, RelationService};
 use crate::service::{UserService};
-use crate::domain::DomainError;
-use chrono::Local;
+use crate::domain::{DomainError, Role};
 
 // The FSM for the client
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CliState {
     Guest,
-    Authenticated(u64), // the user's id is recorded here.
+    UserAuthenticated(u64),
+    AdminAuthenticated(u64),
     Quit,
 }
 
@@ -42,9 +43,23 @@ impl CliApplication {
         }
         Ok(self.input_buffer.trim().to_string())
     }
+
+    // print out the prompt and try to parse the u64.
+    async fn read_u64_prompt(&mut self, prompt: &str) -> Option<u64> {
+        println!("{}", prompt);
+        if let Ok(input) = self.read_next_line().await {
+            if let Ok(id) = input.parse::<u64>() {
+                return Some(id);
+            }
+        }
+        println!("Invalid input format. Must be a positive integer.");
+        None
+    }
 }
 
 impl CliApplication {
+    const PAGE_SIZE: u32 = 5;
+
     // After the user choosed to edit his profile, the fn is called in the auth_loop
     async fn profile_edit_loop(&mut self, uid: u64) -> Result<(), io::Error> {
         loop {
@@ -161,6 +176,7 @@ impl CliApplication {
                                     println!("\n--- Results ---");
                                     for u in users {
                                         // status: 255是无关系, 0是已申请, 2是已经是好友
+                                        // 后需要改成pub enum
                                         let relation_text = match u.status {
                                             255 => "Stranger",
                                             0 => "Request Sent",
@@ -178,14 +194,10 @@ impl CliApplication {
                 "3" => {
                     // 3. Send Friend Request
                     println!("Enter the target user ID to add:");
-                    if let Ok(id_str) = self.read_next_line().await {
-                        if let Ok(target_id) = id_str.parse::<u64>() {
-                            match self.relation_service.add_friend(uid, target_id).await {
-                                Ok(_) => println!("Friend request sent successfully!"),
-                                Err(e) => println!("Failed to send request: {}", e), 
-                            }
-                        } else {
-                            println!("Invalid ID format.");
+                    if let Some(target_id) = self.read_u64_prompt("Enter the target user ID to add:").await {
+                        match self.relation_service.add_friend(uid, target_id).await {
+                            Ok(_) => println!("Friend request sent successfully!"),
+                            Err(e) => println!("Failed to send request: {}", e), 
                         }
                     }
                 }
@@ -200,15 +212,14 @@ impl CliApplication {
                                 for req in requests {
                                     println!("ID: {} | From: {}", req.id, req.name);
                                 }
-                                println!("Enter the user ID to accept (enter 0 to cancel):");
-                                if let Ok(id_str) = self.read_next_line().await {
-                                    if let Ok(applicant_id) = id_str.parse::<u64>() {
-                                        if applicant_id == 0 { continue; }
-                                        match self.relation_service.accept_request(uid, applicant_id).await {
-                                            Ok(_) => println!("Friend request accepted!"),
-                                            Err(e) => println!("Failed to process request: {}", e),
-                                        }
+                                if let Some(applicant_id) = self.read_u64_prompt("Enter the user ID to accept (enter 0 to cancel):").await {
+                                    if applicant_id == 0 { continue; }
+                                    match self.relation_service.accept_request(uid, applicant_id).await {
+                                        Ok(_) => println!("Friend request accepted!"),
+                                        Err(e) => println!("Failed to process request: {}", e),
                                     }
+                                } else {
+                                    println!("Invalid ID format.");
                                 }
                             }
                         }
@@ -224,8 +235,6 @@ impl CliApplication {
                                 Ok(_) => println!("Friend or request removed."),
                                 Err(e) => println!("Failed to remove: {}", e),
                             }
-                        } else {
-                            println!("Invalid ID format.");
                         }
                     }
                 }
@@ -248,18 +257,12 @@ impl CliApplication {
                     }
                 }
                 "8" => {
-                    println!("Enter the friend ID to move:");
-                    if let Ok(id_str) = self.read_next_line().await {
-                        if let Ok(friend_id) = id_str.parse::<u64>() {
-                            println!("Enter the target group name (press Enter to remove from current group):");
-                            if let Ok(group_name) = self.read_next_line().await {
-                                match self.relation_service.move_friend_to_group(uid, friend_id, &group_name).await {
-                                    Ok(_) => println!("Friend group updated successfully."),
-                                    Err(e) => println!("Failed to move friend: {}", e),
-                                }
-                            }
-                        } else {
-                            println!("Invalid ID format.");
+                    if let Some(friend_id) = self.read_u64_prompt("Enter the friend ID to move:").await {
+                        println!("Enter the target group name (press Enter to remove from current group):");
+                        let group_name = self.read_next_line().await?;
+                        match self.relation_service.move_friend_to_group(uid, friend_id, &group_name).await {
+                            Ok(_) => println!("Friend group updated successfully."),
+                            Err(e) => println!("Failed to move friend: {}", e),
                         }
                     }
                 }
@@ -269,119 +272,199 @@ impl CliApplication {
         Ok(())
     }
 
-    async fn moments_loop(&mut self, uid: u64) -> Result<(), io::Error> {
+    async fn view_moments_loop(&mut self, uid: u64) -> Result<(), io::Error> {
+        let mut current_offset: u32 = 0;
+        let mut has_next_page: bool = false;
+
         loop {
-            println!("\n=== Moments & Comments ===");
-            println!("1. View Moments");
-            println!("2. Create New Moment");
-            println!("3. Edit Moment");
-            println!("4. Delete Moment");
-            println!("5. Add Comment");
-            println!("6. Delete Comment");
-            println!("7. Return to Main Menu");
+            println!("\n\n=======================================================");
+            println!("             Moments (Page {} )", (current_offset / Self::PAGE_SIZE) + 1);
+            println!("=======================================================");
+
+            // Fetch data based on the current offset
+            match self.moment_service.get_friends_moments(uid, Self::PAGE_SIZE, current_offset).await {
+                Ok(moments) => {
+                    has_next_page = moments.len() as u32 == Self::PAGE_SIZE;
+                    if moments.is_empty() {
+                        println!("\n There's no data in this page since it's the last page.");
+                    } else {
+                        for m in &moments {
+                            m.display();
+                        }
+                    }
+                }
+                Err(e) => println!("Data fetch failed: {}", e),
+            }
+
+            println!("\nOperands:");
+            println!("  [n] next page | [p] previous page");
+            println!("  [post] post your new comment");
+            println!("  [edit <id>] edit the specific moment.(note: you have to be the author yourself.)");
+            println!("  [del <id>] delete the specific moment.(note: you have to be the author yourself.)");
+            println!("  [cmt <id>] comment on the specific moment.");
+            println!("  [del_cmt <id>] delete the specifc comment");
+            println!("  [q] quit to main menu.");
+            println!("Please input your command: ");
 
             let choice = self.read_next_line().await?;
+            let parts: Vec<&str> = choice.split_whitespace().collect();
+            if parts.is_empty() { continue; }
 
-            match choice.as_str() {
-                "1" => {
-                    match self.moment_service.get_friends_moments(uid).await {
-                        Ok(moments) => {
-                            if moments.is_empty() {
-                                println!("There are no moments now visible.");
-                            } else {
-                                println!("\n================ Moments ================");
-                                for m in moments {
-                                    let edited_tag = m.is_edited();
-                                    let time_str = if edited_tag {m.last_modified_time.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string()}
-                                    else {m.created_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string()};
-                                    if m.is_edited() {
-                                        println!("\n[ID: {}] By {} Last edited at: {}", m.moment_id, m.author_name.unwrap_or_default(), time_str);
-                                    }
-                                    else {
-                                        println!("\n[ID: {}] By {} Posted at: {}", m.moment_id, m.author_name.unwrap_or_default(), time_str);
-                                    }
-                                    println!("  {}", m.content);
-                                    
-                                    // 解包 sqlx::types::Json
-                                    let comments = &m.comments.0; 
-                                    if !comments.is_empty() {
-                                        println!("  --- Comments ---");
-                                        for c in comments {
-                                            let c_time = c.created_at.with_timezone(&Local).format("%m-%d %H:%M").to_string();
-                                            println!("    -> [comment ID: {}] {}: {} (commented at: {})", 
-                                                c.comment_id, c.commenter_name, c.comment, c_time);
-                                        }
-                                    }
-                                    println!("----------------------------------------");
-                                }
-                            }
-                        }
-                        Err(e) => println!("Failed to fetch moments: {}", e),
+            // An assistance closure to parse the ID safely.
+            // Returns Some(id) if there is an ID and None if there's none
+            let parse_id = || -> Option<u64> {
+                parts.get(1).and_then(|s| s.parse::<u64>().ok())
+            };
+
+            match parts[0] {
+                "n" => {
+                    if has_next_page {
+                        current_offset += Self::PAGE_SIZE;
+                    } else {
+                        println!("\nYou are already on the last page. Cannot go further.");
                     }
                 }
-                "2" => {
-                    println!("Enter moment content (max 150 characters):");
+                "p" => {
+                    // Check whether the offset can be minused, or it'll panic
+                    if current_offset >= Self::PAGE_SIZE {
+                        current_offset -= Self::PAGE_SIZE;
+                    } else {
+                        println!("\nYou can't go to the previous page since it's the first page.");
+                    }
+                }
+                "post" => {
+                    println!("Enter moment content (max {} characters):", MOMENT_LIMIT);
                     let content = self.read_next_line().await?; 
                     match self.moment_service.post_moment(uid, &content).await {
-                        Ok(id) => println!("Posted successfully! Moment ID: {}", id),
-                        Err(e) => println!("Failed to post: {}", e),
+                        Ok(id) => println!("[Success] Posted successfully! Moment ID: {}", id),
+                        Err(e) => println!("[Failed] Failed to post: {}", e),
                     }
                 }
-                "3" => {
-                    println!("Enter the ID of the moment to edit:");
-                    let id_str = self.read_next_line().await?;
-                    if let Ok(moment_id) = id_str.parse::<u64>() {
+                "edit" => {
+                    if let Some(moment_id) = parse_id() {
                         println!("Enter the new content:");
                         let new_content = self.read_next_line().await?;
                         match self.moment_service.update_moment(uid, moment_id, &new_content).await {
-                            Ok(_) => println!("Updated successfully!"),
-                            Err(e) => println!("Update failed: {}", e),
+                            Ok(_) => println!("[Success] Updated successfully!"),
+                            Err(e) => println!("[Failed] Update failed: {}", e),
                         }
-                    }
-                    else {
-                        println!("Invalid input. Please try again.");
+                    } else {
+                        println!("\n[Error] Invalid ID format. Usage: edit <id>");
                     }
                 }
-                "4" => {
-                    println!("Enter the moment ID to delete:");
-                    let id_str = self.read_next_line().await?;
-                    if let Ok(moment_id) = id_str.parse::<u64>() {
+                "del" => {
+                    if let Some(moment_id) = parse_id() {
                         match self.moment_service.delete_moment(uid, moment_id).await {
-                            Ok(_) => println!("Deleted successfully! Related comments have been cleared via database cascade."),
-                            Err(e) => println!("Delete failed: {}", e),
+                            Ok(_) => println!("[Success] Deleted successfully! Related comments have been cleared via database cascade."),
+                            Err(e) => println!("[Failed] Delete failed: {}", e),
                         }
                     }
                     else {
-                        println!("Invalid input. Please try again.");
+                        println!("\n[Error] Invalid ID format. Usage: del <id>");
                     }
-                }
-                "5" => {
-                    println!("Enter the target moment ID:");
-                    let id_str = self.read_next_line().await?;
-                    if let Ok(moment_id) = id_str.parse::<u64>() {
-                        println!("Enter comment content (max 50 characters):");
+                } 
+                "cmt" => {
+                    if let Some(moment_id) = parse_id() {
+                        println!("Enter comment content (max {} chars):", COMMENT_LIMIT);
                         let content = self.read_next_line().await?;
                         match self.moment_service.post_comment(uid, moment_id, &content).await {
-                            Ok(id) => println!("Comment posted! Comment ID: {}", id),
-                            Err(e) => println!("Comment failed: {}", e),
+                            Ok(id) => println!("[Success] Comment posted! Comment ID: {}", id),
+                            Err(e) => println!("[Failed] Comment failed: {}", e),
                         }
-                    }
-                    else {
-                        println!("Invalid input. Please try again.");
+                    } else {
+                        println!("\n[Error] Invalid ID format. Usage: cmt <id>");
                     }
                 }
-                "6" => {
-                    println!("Enter the comment ID to delete:");
-                    let id_str = self.read_next_line().await?;
-                    if let Ok(comment_id) = id_str.parse::<u64>() {
+                "del_cmt" => {
+                    if let Some(comment_id) = parse_id() {
                         match self.moment_service.delete_comment(uid, comment_id).await {
-                            Ok(_) => println!("Comment deleted."),
-                            Err(e) => println!("Delete failed: {}", e),
+                            Ok(_) => println!("[Success] Comment deleted."),
+                            Err(e) => println!("[Failed] Delete failed: {}", e),
+                        }
+                    } else {
+                        println!("\n[Error] Invalid ID format. Usage: del_cmt <id>");
+                    }
+                } 
+                "q" => {
+                    println!("Quitting to the main menu...");
+                    break;
+                }
+                _ => println!("\n[Error] Invalid input. Please try again."),
+            }
+        }
+        Ok(())
+    }
+
+    async fn admin_audit_loop(&mut self) -> Result<(), io::Error> {
+        let mut current_offset: u32 = 0;
+        let mut has_next_page: bool = false;
+
+        loop {
+            println!("\n\n=======================================================");
+            println!("             Audit center (Page {} )", (current_offset / Self::PAGE_SIZE) + 1);
+            println!("=======================================================");
+
+            // Fetch data based on the current offset
+            match self.moment_service.admin_get_all_moments(Self::PAGE_SIZE, current_offset).await {
+                Ok(moments) => {
+                    has_next_page = moments.len() as u32 == Self::PAGE_SIZE;
+                    if moments.is_empty() {
+                        println!("\n There's no data in this page since it's the last page.");
+                    } else {
+                        for m in &moments {
+                            m.display();
                         }
                     }
                 }
-                "7" => break,
-                _ => println!("Invalid choice."),
+                Err(e) => println!("Data fetch failed: {}", e),
+            }
+
+            println!("\nOperands:");
+            println!("  [n] next page | [p] previous page");
+            println!("  [d <id>] delete violating moment. (e.g. d 1024)");
+            println!("  [q] quit the auditing center.");
+            println!("Please input your command: ");
+
+            let choice = self.read_next_line().await?;
+            let parts: Vec<&str> = choice.split_whitespace().collect();
+            if parts.is_empty() { continue; }
+
+            match parts[0] {
+                "n" => {
+                    if has_next_page {
+                        current_offset += Self::PAGE_SIZE;
+                    } else {
+                        println!("\nYou are already on the last page. Cannot go further.");
+                    }
+                }
+                "p" => {
+                    // Check whether the offset can be minused, or it'll panic
+                    if current_offset >= Self::PAGE_SIZE {
+                        current_offset -= Self::PAGE_SIZE;
+                    } else {
+                        println!("\nYou can't go to the previous page since it's the first page.");
+                    }
+                }
+                "d" => {
+                    // parse the ID and cancel it
+                    if parts.len() == 2 {
+                        if let Ok(target_id) = parts[1].parse::<u64>() {
+                            match self.moment_service.admin_delete_moment(target_id).await {
+                                Ok(_) => println!("\n[Success] Violating moment (ID: {}) has been cleared!", target_id),
+                                Err(e) => println!("\n[Fail] Deletion anomaly: {}", e),
+                            }
+                        } else {
+                            println!("\n[Fail] ID format is incorrect.");
+                        }
+                    } else {
+                        println!("\n[Fail] ID missing. Note: d <id>");
+                    }
+                }
+                "q" => {
+                    println!("Quitting the audit center...");
+                    break;
+                }
+                _ => println!("\n[Fail] Invalid input. Please try again."),
             }
         }
         Ok(())
@@ -393,7 +476,8 @@ impl CliApplication {
         loop {
             match self.state {
                 CliState::Guest => self.guest_loop().await?,
-                CliState::Authenticated(uid) => self.auth_loop(uid).await?,
+                CliState::UserAuthenticated(uid) => self.auth_loop(uid).await?,
+                CliState::AdminAuthenticated(uid) => self.admin_auth_loop(uid).await?,
                 CliState::Quit => break,
             }
         }
@@ -408,10 +492,9 @@ impl CliApplication {
         let choice = self.read_next_line().await?;
         match choice.as_str() {
             "1" => {
-                println!("Please input your account number.");
-                let account = match self.read_next_line().await?.parse::<u64>() {
-                    Ok(num) => num,
-                    Err(_) => {
+                let account = match self.read_u64_prompt("Please input your account number.").await {
+                    Some(num) => num,
+                    None => {
                         println!("Your input is invalid. Please try again.");
                         return Ok(());
                     }
@@ -420,9 +503,13 @@ impl CliApplication {
                 println!("Please input your password.");
                 let password = self.read_next_line().await?;
                 match self.user_service.verify_login(account, &password).await {
-                    Ok(_) => {
+                    Ok(Role::User) => {
                         println!("Login successful. Welcome User {}", account);
-                        self.state = CliState::Authenticated(account);
+                        self.state = CliState::UserAuthenticated(account);
+                    }
+                    Ok(Role::Admin) => {
+                        println!("Login successful. Welcome Admin {}", account);
+                        self.state = CliState::AdminAuthenticated(account);
                     }
                     Err(DomainError::InvalidCredentials) => {
                         println!("Error: Incorrect ID or password.");
@@ -488,7 +575,45 @@ impl CliApplication {
                 self.friends_loop(user_id).await?;
             }
             "5" => {
-                self.moments_loop(user_id).await?;
+                self.view_moments_loop(user_id).await?;
+            }
+            _ => {
+                println!("Your input is invalid, Please try again.");
+            }
+        }
+        Ok(())
+    }
+
+    async fn admin_auth_loop(&mut self, user_id: u64) -> Result<(), io::Error> {
+        println!("==========================================================");
+        println!("Admin {}, welcome!", user_id);
+        println!("Press 1 for logout, 2 for quit, 3 for modifying your personal information.");
+        println!("4 for cancel users, 5 for auditing moments.");
+        println!("Other functions are under development.");
+
+        let choice = self.read_next_line().await?;
+        match choice.as_str() {
+            "1" => {
+                println!("Logging out...");
+                self.state = CliState::Guest;
+            }
+            "2" => {
+                println!("Trying to quit...");
+                self.state = CliState::Quit;
+            }
+            "3" => {
+                self.profile_edit_loop(user_id).await?;
+            }
+            "4" => {
+                if let Some(target_id) = self.read_u64_prompt("Input the id of the user you want to cancel.").await{
+                    match self.user_service.admin_cancel_user(target_id).await {
+                        Ok(_) => println!("User cancelled successfully!"),
+                        Err(e) => println!("Failed to cancel the certain user: {}", e), 
+                    }
+                }
+            }
+            "5" => {
+                self.admin_audit_loop().await?;
             }
             _ => {
                 println!("Your input is invalid, Please try again.");

@@ -8,3 +8,4 @@ pub use profile::UserProfile;
 pub use relation::FriendItem;
 pub use moment::CommentItem;
 pub use moment::MomentItem;
+pub use profile::Role;
