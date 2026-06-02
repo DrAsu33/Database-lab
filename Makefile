@@ -18,6 +18,13 @@ db-down:
 	@echo "[INFO] 销毁数据库容器与网络环境..."
 	$(DC) down
 
+db-init: db-up
+	@echo "[INFO] 等待数据库引擎启动 (根据机器性能调整睡眠时间)..."
+	sleep 3 
+	@echo "[INFO] 创建数据库并执行数据模式迁移..."
+	sqlx database setup
+	@echo "[SUCCESS] 数据库初始化完美完成！"
+
 # 2. 业务运行层：统筹基础设施与应用逻辑
 run: db-up
 	@echo "[INFO] 启动 Rust 应用..."

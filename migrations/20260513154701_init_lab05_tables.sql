@@ -2,14 +2,20 @@
 
 # The table of User
 # Note : gender is either 'F'(Female) or 'M'(Male)
+# id is set as BIGINT UNSIGNED in accordance with u64
+# "Age" is not needed here because it should be calculated
 CREATE TABLE IF NOT EXISTS Users (
-    id         INT PRIMARY KEY AUTO_INCREMENT,
+    id         BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
     password   VARCHAR(50) NOT NULL,
     name       VARCHAR(20),
     gender     CHAR(1) CHECK (gender IN ('M', 'F')),
     birth_date DATE,
-    age        INT   
+    # 0 代表普通用户，1 代表系统管理员
+    role       TINYINT UNSIGNED NOT NULL DEFAULT 0
 );
+
+INSERT INTO Users (password, name, role) 
+VALUES ('adminpass', 'System_Root', 1);
 
 CREATE TABLE IF NOT EXISTS Relations (
     user_id    BIGINT UNSIGNED NOT NULL,
@@ -35,11 +41,26 @@ CREATE TABLE IF NOT EXISTS FriendGroups (
     CONSTRAINT fk_group_user FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS Moments (
+CREATE TABLE Moments (
+    moment_id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
     author_id BIGINT UNSIGNED NOT NULL,
-    content VARCHAR(150),
-    last_modified_time TIMESTAMP,
+    content VARCHAR(150) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    last_modified_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
 
-    UNIQUE KEY uk_id_content (author_id, content),
-    CONSTRAINT fk_author FOREIGN KEY (author_id) REFERENCES Users(id) ON DELETE CASCADE
+    INDEX idx_author_time (author_id, created_at DESC),
+    CONSTRAINT fk_moment_author FOREIGN KEY (author_id) REFERENCES Users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE Comments (
+    comment_id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+    moment_id BIGINT UNSIGNED NOT NULL,
+    commenter_id BIGINT UNSIGNED NOT NULL,
+    comment VARCHAR(50) NOT NULL,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    -- 优化查询防线：查询某条朋友圈下的所有评论，通常按时间正序排列
+    INDEX idx_moment_time (moment_id, created_at ASC),
+
+    CONSTRAINT fk_comment_moment FOREIGN KEY (moment_id) REFERENCES Moments(moment_id) ON DELETE CASCADE,
+    CONSTRAINT fk_comment_user FOREIGN KEY (commenter_id) REFERENCES Users(id) ON DELETE CASCADE
 );
