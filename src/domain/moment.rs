@@ -20,7 +20,7 @@ pub struct CommentItem {
     pub comment_id: u64,
     pub moment_id: u64,
     pub commenter_id: u64,
-    pub commenter_name: String,
+    pub commenter_name: Option<String>,
     pub comment: String,
     pub created_at: DateTime<Utc>
 }
@@ -33,10 +33,10 @@ impl MomentItem {
     pub fn display(&self) {
         let edited_tag = self.is_edited();
         let time_str = if edited_tag {
-            self.last_modified_time.with_timezone(&Local).format("%Y-%self-%d %H:%M:%S").to_string()
+            self.last_modified_time.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string()
         }
         else {
-            self.created_at.with_timezone(&Local).format("%Y-%self-%d %H:%M:%S").to_string()
+            self.created_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string()
         };
 
         if self.is_edited() {
@@ -51,9 +51,9 @@ impl MomentItem {
         if !comments.is_empty() {
             println!("  --- Comments ---");
             for c in comments {
-                let c_time = c.created_at.with_timezone(&Local).format("%self-%d %H:%M").to_string();
+                let c_time = c.created_at.with_timezone(&Local).format("%Y-%m-%d %H:%M").to_string();
                 println!("    -> [comment ID: {}] {}: {} (commented at: {})", 
-                    c.comment_id, c.commenter_name, c.comment, c_time);
+                    c.comment_id, c.commenter_name.as_deref().unwrap_or(""), c.comment, c_time);
             }
         }
         println!("----------------------------------------");
