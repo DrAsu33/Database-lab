@@ -4,8 +4,6 @@ pub mod relation;
 pub mod moment;
 
 pub use errors::DomainError;
-pub use profile::UserProfile;
-pub use relation::FriendItem;
-pub use moment::CommentItem;
-pub use moment::MomentItem;
-pub use profile::Role;
+pub use profile::{UserProfile, Role};
+pub use relation::{FriendItem, RelationStatus};
+pub use moment::{CommentItem, MomentItem};

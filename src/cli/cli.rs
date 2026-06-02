@@ -175,15 +175,7 @@ impl CliApplication {
                                 } else {
                                     println!("\n--- Results ---");
                                     for u in users {
-                                        // status: 255是无关系, 0是已申请, 2是已经是好友
-                                        // 后需要改成pub enum
-                                        let relation_text = match u.status {
-                                            255 => "Stranger",
-                                            0 => "Request Sent",
-                                            2 => "Already Friends",
-                                            _ => {"Unknown Status (this is a serious database error)"},
-                                        };
-                                        println!("ID: {} | name: {} | status: {}", u.id, u.name, relation_text);
+                                        println!("ID: {} | name: {} | status: {}", u.id, u.name, u.status);
                                     }
                                 }
                             }
@@ -193,7 +185,6 @@ impl CliApplication {
                 }
                 "3" => {
                     // 3. Send Friend Request
-                    println!("Enter the target user ID to add:");
                     if let Some(target_id) = self.read_u64_prompt("Enter the target user ID to add:").await {
                         match self.relation_service.add_friend(uid, target_id).await {
                             Ok(_) => println!("Friend request sent successfully!"),
@@ -242,7 +233,7 @@ impl CliApplication {
                     println!("Enter the new group name:");
                     if let Ok(name) = self.read_next_line().await {
                         match self.relation_service.create_group(uid, &name).await {
-                            Ok(id) => println!("Group '{}' created successfully. Assigned ID: {}", name, id),
+                            Ok(_) => println!("Group '{}' created successfully.", name),
                             Err(e) => println!("Failed to create group: {}", e),
                         }
                     }

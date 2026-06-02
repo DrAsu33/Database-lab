@@ -1,7 +1,7 @@
 use sqlx::MySqlPool;
 use async_trait::async_trait;
 use crate::service::RelationRepository;
-use crate::domain::{DomainError, relation::FriendItem};
+use crate::domain::{DomainError, relation::FriendItem, RelationStatus};
 
 pub struct MySqlRelationRepository {
     pool: MySqlPool,
@@ -21,7 +21,10 @@ impl RelationRepository for MySqlRelationRepository {
         let users = sqlx::query_as!(
             FriendItem,
             r#"
-            SELECT u.id, COALESCE(u.name, '') as "name!: String", COALESCE(r.status, 255) as "status!: u8", fg.name as "group_name?: String"
+            SELECT u.id,
+            COALESCE(u.name, '') as "name!: String",
+            COALESCE(r.status, 255) as "status!: RelationStatus",
+            fg.name as "group_name?: String"
             FROM Users u
             LEFT JOIN Relations r ON u.id = r.friend_id AND r.user_id = ?
             LEFT JOIN FriendGroups fg ON r.group_id = fg.group_id
@@ -92,21 +95,29 @@ impl RelationRepository for MySqlRelationRepository {
     async fn remove_friend(&self, user_id: u64, friend_id: u64) -> Result<(), DomainError> {
         let mut tx = self.pool.begin().await.map_err(|e| DomainError::SystemFailure(e.to_string()))?;
 
-        sqlx::query!(r#"DELETE FROM Relations WHERE user_id = ? AND friend_id = ?"#, user_id, friend_id)
+        let res1 = sqlx::query!(r#"DELETE FROM Relations WHERE user_id = ? AND friend_id = ?"#, user_id, friend_id)
             .execute(&mut *tx).await.map_err(|e| DomainError::SystemFailure(e.to_string()))?;
 
-        sqlx::query!(r#"DELETE FROM Relations WHERE user_id = ? AND friend_id = ?"#, friend_id, user_id)
+        let res2 = sqlx::query!(r#"DELETE FROM Relations WHERE user_id = ? AND friend_id = ?"#, friend_id, user_id)
             .execute(&mut *tx).await.map_err(|e| DomainError::SystemFailure(e.to_string()))?;
 
+        if res1.rows_affected() + res2.rows_affected() == 0 {
+            // 这里不需要手动调用 tx.rollback()。
+            // 因为直接 return Err，tx 变量会离开作用域 (Drop)，
+            // sqlx 的底层机制会自动向数据库发送 ROLLBACK。
+            return Err(DomainError::InvalidRelationState); // 强烈建议你在 DomainError 中添加这个变体
+        }
         tx.commit().await.map_err(|e| DomainError::SystemFailure(e.to_string()))?;
         Ok(())
     }
 
-    async fn list_relations(&self, user_id: u64, status: u8) -> Result<Vec<FriendItem>, DomainError> {
+    async fn list_relations(&self, user_id: u64, status: RelationStatus) -> Result<Vec<FriendItem>, DomainError> {
         let friends = sqlx::query_as!(
             FriendItem,
             r#"
-            SELECT u.id, COALESCE(u.name, '') as "name!: String", r.status, fg.name AS group_name
+            SELECT u.id, COALESCE(u.name, '') AS "name!: String",
+            r.status AS "status!: RelationStatus",
+            fg.name AS group_name
             FROM Relations r
             JOIN Users u ON r.friend_id = u.id
             LEFT JOIN FriendGroups fg ON r.group_id = fg.group_id
@@ -125,12 +136,15 @@ impl RelationRepository for MySqlRelationRepository {
         let requests = sqlx::query_as!(
             FriendItem,
             r#"
-            SELECT u.id, COALESCE(u.name, '') as "name!: String", r.status, NULL as "group_name?: String"
+            SELECT u.id,
+            COALESCE(u.name, '') as "name!: String",
+            r.status as "status!: RelationStatus",
+            NULL as "group_name?: String"
             FROM Relations r
             JOIN Users u ON r.user_id = u.id
-            WHERE r.friend_id = ? AND r.status = 0
+            WHERE r.friend_id = ? AND r.status = ?
             "#,
-            my_user_id
+            my_user_id, RelationStatus::Pending
         )
         .fetch_all(&self.pool)
         .await

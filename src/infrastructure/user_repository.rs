@@ -52,7 +52,8 @@ impl UserRepository for MySqlUserRepository {
     async fn fetch_profile(&self, uid: u64) -> Result<UserProfile, DomainError> {
         let user = sqlx::query_as!(
             UserProfile,
-            r#"SELECT id, name, gender, birth_date, role FROM Users WHERE id = ?"#, uid
+            r#"SELECT id, name, gender, birth_date FROM Users WHERE id = ? AND role = ?"#,
+            uid, Role::User
         )
         .fetch_one(&self.pool)
         .await
@@ -90,7 +91,7 @@ impl UserRepository for MySqlUserRepository {
     }
 
     async fn force_cancel_user(&self, uid: u64) -> Result<(), DomainError> {
-        let result = sqlx::query!(r#"DELETE FROM Users WHERE id = ?"#, uid)
+        let result = sqlx::query!(r#"DELETE FROM Users WHERE id = ? AND role = ?"#, uid, Role::User)
         .execute(&self.pool)
         .await
         .map_err(|e| DomainError::SystemFailure(e.to_string()))?;

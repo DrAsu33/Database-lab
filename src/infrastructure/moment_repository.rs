@@ -208,9 +208,10 @@ impl MomentRepository for MySqlMomentRepository {
                         SELECT JSON_ARRAYAGG(
                             JSON_OBJECT(
                                 'comment_id', c.comment_id,
+                                'moment_id', c.moment_id,
                                 'commenter_id', c.commenter_id,
                                 'commenter_name', u2.name,
-                                'content', c.comment,
+                                'comment', c.comment,
                                 'created_at', DATE_FORMAT(c.created_at, '%Y-%m-%dT%H:%i:%sZ')
                             )
                         )

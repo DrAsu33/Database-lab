@@ -4,7 +4,7 @@ pub use service::RelationService;
 pub use service::MomentService;
 
 use async_trait::async_trait;
-use crate::domain::{Role, DomainError, UserProfile, FriendItem, MomentItem};
+use crate::domain::{Role, DomainError, UserProfile, FriendItem, MomentItem, RelationStatus};
 
 // The service layer needs a struct satisfying the following trait
 #[async_trait]
@@ -22,7 +22,7 @@ pub trait RelationRepository: Send + Sync {
     async fn send_request(&self, user_id: u64, target_id: u64) -> Result<(), DomainError>;
     async fn accept_request(&self, user_id: u64, applicant_id: u64) -> Result<(), DomainError>;
     async fn remove_friend(&self, user_id: u64, friend_id: u64) -> Result<(), DomainError>;
-    async fn list_relations(&self, user_id: u64, status: u8) -> Result<Vec<FriendItem>, DomainError>;
+    async fn list_relations(&self, user_id: u64, status: RelationStatus) -> Result<Vec<FriendItem>, DomainError>;
     async fn list_pending_requests(&self, my_user_id: u64) -> Result<Vec<FriendItem>, DomainError>;
 
     async fn create_group(&self, user_id: u64, group_name: &str) -> Result<u64, DomainError>;
@@ -39,7 +39,7 @@ pub trait MomentRepository: Send + Sync {
     async fn delete_moment_by_author(&self, uid: u64, moment_id: u64) -> Result<(), DomainError>;
     async fn post_comment(&self, uid: u64, moment_id:u64, content: &str) -> Result<u64, DomainError>;
     async fn delete_comment(&self, uid: u64, moment_id:u64) -> Result<(), DomainError>;
-    
+
     async fn fetch_all_moments_for_admin(&self, limit: u32, offset: u32) -> Result<Vec<MomentItem>, DomainError>;
     async fn force_delete_moment(&self, moment_id: u64) -> Result<(), DomainError>;
 }

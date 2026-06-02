@@ -1,4 +1,4 @@
-use crate::domain::{Role, DomainError, FriendItem, MomentItem, UserProfile};
+use crate::domain::{DomainError, FriendItem, MomentItem, RelationStatus, Role, UserProfile};
 use crate::service::{MomentRepository, UserRepository};
 use crate::service::RelationRepository;
 use crate::infrastructure::{MOMENT_LIMIT, COMMENT_LIMIT};
@@ -95,7 +95,7 @@ impl RelationService {
     }
 
     pub async fn list_friends(&self, user_id: u64) -> Result<Vec<FriendItem>, DomainError> {
-        self.repo.list_relations(user_id, 2).await
+        self.repo.list_relations(user_id, RelationStatus::Accepted).await
     }
 
     pub async fn get_pending_requests(&self, my_user_id: u64) -> Result<Vec<FriendItem>, DomainError> {

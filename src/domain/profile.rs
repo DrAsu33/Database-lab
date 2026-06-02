@@ -8,23 +8,12 @@ pub enum Role {
     Admin = 1,
 }
 
-impl From<u8> for Role {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => Role::User,
-            1 => Role::Admin,
-            _ => panic!("Invalid role value: {}", value),
-        }
-    }
-}
-
 #[derive(Debug, FromRow)]
 pub struct UserProfile {
     pub id: u64,
     pub name: Option<String>,
     pub gender: Option<String>,
     pub birth_date: Option<NaiveDate>,
-    pub role: Role
 }
 
 impl UserProfile {
