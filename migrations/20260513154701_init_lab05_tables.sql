@@ -14,6 +14,16 @@ CREATE TABLE IF NOT EXISTS Users (
     role       TINYINT UNSIGNED NOT NULL DEFAULT 0
 );
 
+CREATE OR REPLACE VIEW User_Profile_View AS
+SELECT 
+    id,
+    name,
+    gender,
+    birth_date,
+    TIMESTAMPDIFF(YEAR, birth_date, CURDATE()) AS age,
+    role
+FROM Users;
+
 INSERT INTO Users (password, name, role) 
 VALUES ('adminpass', 'System_Root', 1);
 
@@ -31,6 +41,17 @@ CREATE TABLE IF NOT EXISTS Relations (
     CONSTRAINT fk_rel_user FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE,
     CONSTRAINT fk_rel_friend FOREIGN KEY (friend_id) REFERENCES Users(id) ON DELETE CASCADE
 );
+
+CREATE TRIGGER before_relation_insert
+BEFORE INSERT ON Relations
+FOR EACH ROW
+BEGIN
+    -- 不允许用户和自己建立好友关系
+    IF NEW.user_id = NEW.friend_id THEN
+        SIGNAL SQLSTATE '45000' 
+        SET MESSAGE_TEXT = 'Logic Error: A user cannot add themselves as a friend.';
+    END IF;
+END;
 
 CREATE TABLE IF NOT EXISTS FriendGroups (
     group_id   BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,

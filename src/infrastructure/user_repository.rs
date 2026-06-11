@@ -52,7 +52,7 @@ impl UserRepository for MySqlUserRepository {
     async fn fetch_profile(&self, uid: u64) -> Result<UserProfile, DomainError> {
         let user = sqlx::query_as!(
             UserProfile,
-            r#"SELECT id, name, gender, birth_date FROM Users WHERE id = ? AND role = ?"#,
+            r#"SELECT id, name, gender, birth_date, age AS "age?: u32" FROM User_Profile_View WHERE id = ? AND role = ?"#,
             uid, Role::User
         )
         .fetch_one(&self.pool)

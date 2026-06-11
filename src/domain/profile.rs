@@ -14,6 +14,7 @@ pub struct UserProfile {
     pub name: Option<String>,
     pub gender: Option<String>,
     pub birth_date: Option<NaiveDate>,
+    pub age: Option<u32>,
 }
 
 impl UserProfile {
@@ -22,6 +23,9 @@ impl UserProfile {
         println!("2. Gender: {}", self.gender.as_deref().unwrap_or("Not set (NULL)"));
         println!("3. Birth Date: {}", 
             self.birth_date.map(|d| d.to_string()).unwrap_or_else(|| "Not set (NULL)".to_string())
+        );
+        println!("   Age: {}", 
+            self.age.map(|d| d.to_string()).unwrap_or_else(|| "Not set (NULL)".to_string())
         );
     }
 }
