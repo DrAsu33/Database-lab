@@ -31,30 +31,30 @@
 1. 环境变量配置
 在项目根目录确认或创建 .env 文件，配置数据库连接（注意特殊字符的 URL 编码）：
     ```bash
-DATABASE_URL=mysql://root:root@localhost:3306/db_lab05?timezone=%2B00:00
+    DATABASE_URL=mysql://lab_user:lab_password@localhost:3306/lab_DB?timezone=%2B00:00
 
 2. 一键初始化环境
 使用 Makefile 自动化流水线，该指令会自动拉起 MySQL 容器、等待引擎就绪，并注入所有建表脚本（Migrations）：
     ```bash
-make db-init
+    make db-init
 
 3. 启动应用
 编译并进入沉浸式终端系统：
     ```bash
-make run
+    make run
 
 (提示：系统初始自带超级管理员账号 System_Root，密码为 adminpass，登入即自动切入上帝审计态。)
 
 4. 常用运维指令 (Operations)
     ```bash
-make db-up：仅拉起数据库容器（不重置数据）。
-make db-down：⚠️ 停止容器并彻底销毁数据库持久化卷。用于开发环境的重置。
+    make db-up：仅拉起数据库容器（不重置数据）。
+    make db-down：⚠️ 停止容器并彻底销毁数据库持久化卷。用于开发环境的重置。
 
 ## 📁 核心架构目录 (Architecture)
     ```
-src/
-├── domain/         # 领域层：纯粹的业务实体与强类型枚举 (Role, RelationStatus)
-├── infrastructure/ # 基础设施层：与 sqlx 强绑定的 DTO 和数据库操作接口
-├── service/        # 业务逻辑层：权限阻断、参数清洗与领域调度
-├── cli/            # 表现层：基于状态机 (State Machine) 的无损交互终端
-└── main.rs         # 依赖注入与程序入口
+    src/
+    ├── domain/         # 领域层：纯粹的业务实体与强类型枚举 (Role, RelationStatus)
+    ├── infrastructure/ # 基础设施层：与 sqlx 强绑定的 DTO 和数据库操作接口
+    ├── service/        # 业务逻辑层：权限阻断、参数清洗与领域调度
+    ├── cli/            # 表现层：基于状态机 (State Machine) 的无损交互终端
+    └── main.rs         # 依赖注入与程序入口
