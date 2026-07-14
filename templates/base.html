@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}朋友圈{% endblock title %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#4F46E5',
+                        accent: '#818CF8',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- 顶部导航栏 -->
+    <nav class="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
+        <div class="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between">
+            <a href="/home" class="text-xl font-bold text-primary tracking-wide">
+                🌏 朋友圈
+            </a>
+            <div class="flex items-center gap-3 text-sm">
+                {% if user_id %}
+                    {% if role == 1 %}
+                        <a href="/admin" class="px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors text-red-600 font-medium">
+                            ⚙️ 管理面板
+                        </a>
+                    {% else %}
+                        <a href="/home" class="px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-700 font-medium">
+                            🏠 首页
+                        </a>
+                        <a href="/friends" class="px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-700 font-medium">
+                            👥 好友
+                        </a>
+                        <a href="/profile" class="px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-700 font-medium">
+                            👤 资料
+                        </a>
+                    {% endif %}
+                    <span class="text-gray-400">|</span>
+                    <a href="/logout" class="px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors text-red-500 font-medium">
+                        退出
+                    </a>
+                {% else %}
+                    <span class="text-gray-500 text-sm">欢迎来到朋友圈</span>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+
+    <!-- 全局消息提示 -->
+    {% if msg %}
+    <div class="max-w-4xl mx-auto px-4 mt-3">
+        <div class="px-4 py-3 rounded-lg text-sm font-medium {% if msg_type == 'success' %}bg-green-50 text-green-700 border border-green-200{% else %}bg-red-50 text-red-700 border border-red-200{% endif %}">
+            {{ msg }}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- 页面内容 -->
+    <main class="max-w-4xl mx-auto px-4 py-6">
+        {% block content %}{% endblock content %}
+    </main>
+</body>
+</html>

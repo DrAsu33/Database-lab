@@ -43,6 +43,7 @@
     ```bash
     make run
 
+之后在浏览器里输入 `http://127.0.0.1:3000`。
 (提示：系统初始自带超级管理员账号 System_Root，密码为 adminpass，登入即自动切入上帝审计态。)
 
 4. 常用运维指令 (Operations)

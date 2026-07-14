@@ -1,8 +1,9 @@
 use sqlx::FromRow;
 use sqlx::Type;
 use std::fmt;
+use serde::Serialize;
 
-#[derive(Debug, PartialEq, Clone, Copy, Type)]
+#[derive(Debug, PartialEq, Clone, Copy, Type, Serialize)]
 #[repr(u8)] // 严格映射到底层 MySQL 的 TINYINT UNSIGNED
 pub enum RelationStatus {
     Pending = 0,
@@ -22,7 +23,7 @@ impl fmt::Display for RelationStatus {
 }
 
 // 用于返回搜索结果和好友列表
-#[derive(Debug, FromRow)]
+#[derive(Debug, FromRow, Serialize)]
 pub struct FriendItem {
     pub id: u64,
     pub name: String,

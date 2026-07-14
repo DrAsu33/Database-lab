@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}好友管理 - 朋友圈{% endblock title %}
+
+{% block content %}
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- 左栏 -->
+    <div class="space-y-4">
+        <!-- 我的好友 -->
+        <div class="bg-white rounded-2xl shadow-md p-6">
+            <h3 class="font-bold text-gray-800 text-lg mb-4">👥 我的好友</h3>
+            {% if friends | length == 0 %}
+            <p class="text-gray-400 text-sm">还没有好友，去搜索并添加好友吧！</p>
+            {% else %}
+            <div class="space-y-2">
+                {% for f in friends %}
+                <div class="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                    <div>
+                        <span class="font-medium text-gray-800">{{ f.name }}</span>
+                        <span class="text-xs text-gray-400 ml-2">ID: {{ f.id }}</span>
+                        <span class="ml-2 px-2 py-0.5 bg-gray-100 rounded-full text-xs text-gray-500">
+                            {{ f.group_name | default(value="默认分组") }}
+                        </span>
+                    </div>
+                    <div class="flex gap-1">
+                        <!-- 移动到分组 -->
+                        <form method="POST" action="/friends/move" class="flex gap-1">
+                            <input type="hidden" name="friend_id" value="{{ f.id }}">
+                            <input type="text" name="group_name" placeholder="分组名"
+                                class="w-20 px-2 py-1 border border-gray-200 rounded text-xs outline-none focus:ring-1 focus:ring-primary">
+                            <button type="submit" class="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded transition-colors">
+                                移动
+                            </button>
+                        </form>
+                        <!-- 删除好友 -->
+                        <form method="POST" action="/friends/delete" onsubmit="return confirm('确定删除好友 {{ f.name }} 吗？')">
+                            <input type="hidden" name="target_id" value="{{ f.id }}">
+                            <button type="submit" class="text-xs text-red-400 hover:text-red-600 px-2 py-1 rounded transition-colors">
+                                🗑️
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- 待处理的好友申请 -->
+        <div class="bg-white rounded-2xl shadow-md p-6">
+            <h3 class="font-bold text-gray-800 text-lg mb-4">📩 待处理的申请</h3>
+            {% if requests | length == 0 %}
+            <p class="text-gray-400 text-sm">暂无待处理的好友申请</p>
+            {% else %}
+            <div class="space-y-2">
+                {% for r in requests %}
+                <div class="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                    <span class="font-medium text-gray-800">{{ r.name }} <span class="text-xs text-gray-400">ID: {{ r.id }}</span></span>
+                    <div class="flex gap-1">
+                        <form method="POST" action="/friends/accept">
+                            <input type="hidden" name="target_id" value="{{ r.id }}">
+                            <button type="submit" class="text-xs bg-emerald-500 text-white px-3 py-1 rounded hover:bg-emerald-600 transition-colors">
+                                接受
+                            </button>
+                        </form>
+                        <form method="POST" action="/friends/delete" onsubmit="return confirm('确定拒绝 {{ r.name }} 的申请吗？')">
+                            <input type="hidden" name="target_id" value="{{ r.id }}">
+                            <button type="submit" class="text-xs bg-red-100 text-red-600 px-3 py-1 rounded hover:bg-red-200 transition-colors">
+                                拒绝
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- 右栏 -->
+    <div class="space-y-4">
+        <!-- 搜索用户 -->
+        <div class="bg-white rounded-2xl shadow-md p-6">
+            <h3 class="font-bold text-gray-800 text-lg mb-4">🔍 搜索用户</h3>
+            <form method="POST" action="/friends/search" class="flex gap-2 mb-4">
+                <input type="text" name="query" required value="{{ search_query | default(value='') }}"
+                    class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent outline-none text-sm"
+                    placeholder="输入用户名搜索...">
+                <button type="submit"
+                    class="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">
+                    搜索
+                </button>
+            </form>
+
+            {% if search_results %}
+            <div class="space-y-2">
+                {% for u in search_results %}
+                <div class="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                    <span class="font-medium text-gray-800">{{ u.name }} <span class="text-xs text-gray-400">ID: {{ u.id }}</span></span>
+                    {% if u.status == 'Accepted' %}
+                    <span class="text-xs text-emerald-500 font-medium">已是好友</span>
+                    {% elif u.status == 'Pending' %}
+                    <span class="text-xs text-amber-500 font-medium">已发送申请</span>
+                    {% else %}
+                    <form method="POST" action="/friends/add">
+                        <input type="hidden" name="target_id" value="{{ u.id }}">
+                        <button type="submit" class="text-xs bg-primary text-white px-3 py-1 rounded hover:bg-indigo-700 transition-colors">
+                            添加好友
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- 分组管理 -->
+        <div class="bg-white rounded-2xl shadow-md p-6">
+            <h3 class="font-bold text-gray-800 text-lg mb-4">📁 分组管理</h3>
+            <div class="space-y-3">
+                <form method="POST" action="/groups/create" class="flex gap-2">
+                    <input type="text" name="group_name" required maxlength="32"
+                        class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent outline-none text-sm"
+                        placeholder="新分组名称">
+                    <button type="submit"
+                        class="bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-emerald-600 transition-colors">
+                        创建
+                    </button>
+                </form>
+                <form method="POST" action="/groups/delete" class="flex gap-2">
+                    <input type="text" name="group_name" required maxlength="32"
+                        class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-400 focus:border-transparent outline-none text-sm"
+                        placeholder="要删除的分组名称">
+                    <button type="submit"
+                        class="bg-red-100 text-red-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-200 transition-colors">
+                        删除
+                    </button>
+                </form>
+            </div>
+            <p class="text-xs text-gray-400 mt-3">提示：移动好友时输入分组名即可，留空或填"默认"则移出所有分组</p>
+        </div>
+    </div>
+</div>
+{% endblock content %}
